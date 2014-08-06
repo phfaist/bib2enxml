@@ -11,11 +11,12 @@ import textwrap
 from datetime import datetime
 
 
-from pybtex.database import BibliographyData, Entry;
+from pybtex.database import BibliographyData, Entry
 
-from core.bibfilter import BibFilter, BibFilterError;
-from core.blogger import logger;
+from core.bibfilter import BibFilter, BibFilterError
+from core.blogger import logger
 from core.pylatexenc import latex2text
+from core.butils import getbool
 
 from filters.util import arxivutil
 
@@ -24,8 +25,16 @@ from filters.util import arxivutil
 # --------------------------------------------------
 
 
+def unicode_to_xml(u):
+    return re.sub(ur'[^-a-zA-Z0-9\s\+/\.,;:\!\@\#\$\%\^\*()_{}\[\]|?=]',
+                  lambda m: '&#x%x;'%(ord(m.group())),
+                  unicode(u),
+                  flags=re.UNICODE).encode('ascii')
+
 def delatex_for_xml(s):
-    return latex2text.latex2text(unicode(s)).encode('utf-8');
+    #return latex2text.latex2text(unicode(s)).encode('utf-8');
+    text = latex2text.latex2text(unicode(s))
+    return unicode_to_xml(text)
 
 
 # --------------------------------------------------
@@ -76,8 +85,10 @@ class Bib2EnXmlFilter(BibFilter):
     helptext = HELP_TEXT
 
 
-    def __init__(self, xmlfile="publications_%Y-%m-%dT%H-%M-%S.xml"):
-        """Bib2EnXmlFilter constructor.
+    def __init__(self, xmlfile="publications_%Y-%m-%dT%H-%M-%S.xml", export_annote=True,
+                 no_arxiv_urls=False):
+        """
+        Bib2EnXmlFilter constructor.
 
         Arguments:
 
@@ -85,12 +96,22 @@ class Bib2EnXmlFilter(BibFilter):
            `strftime()`, see [https://docs.python.org/2/library/time.html#time.strftime].
            If the file exists, it will not be overwritten and an error will be reported.
            The default value is 'publications_%Y-%m-%dT%H-%M-%S.xml'.
-           
+
+         - export_annote(bool): If set to `False`, then annote={} fields in the bibtex
+           will not be exported into <notes>, as when this is set to `True` (`True` is the
+           default).
+
+         - no_arxiv_urls(bool): If set to `True`, then arxiv URLs will automatically be
+           added to the entry. Note that this is the only way to link to the online arXiv
+           version, but you may disable this option if the URL is already present in the
+           entry.
         """
 
         BibFilter.__init__(self);
 
         self.xmlfile = datetime.now().strftime(xmlfile)
+        self.export_annote = getbool(export_annote)
+        self.no_arxiv_urls = getbool(no_arxiv_urls)
 
         logger.debug('bib2enxml: xmlfile=%r', self.xmlfile)
 
@@ -125,7 +146,7 @@ class Bib2EnXmlFilter(BibFilter):
         """
 
         arxivinfo = arxivaccess.getArXivInfo(entry.key)
-        archiveprefix = ((arxivinfo['archiveprefix'] or "").lower() if arxivinfo else None)
+        archiveprefix = ((arxivinfo['archiveprefix'] or "arxiv").lower() if arxivinfo else None)
 
         # this will be where we collect the XML entries to set. Dictionary keys are XML
         # tags. Can be recursive. Lists are joined together into a string with newlines.
@@ -228,7 +249,8 @@ class Bib2EnXmlFilter(BibFilter):
             if fldname == 'address':
                 xmlfields['pub-location'] = value
             elif fldname == 'annote':
-                xmlfields['notes'].append(value)
+                if self.export_annote:
+                    xmlfields['notes'].append(value)
             elif fldname == 'booktitle':
                 xmlfields['titles']['secondary-title'] = value
             elif fldname == 'chapter':
@@ -281,18 +303,29 @@ class Bib2EnXmlFilter(BibFilter):
                 pass # skip, we have all we need in arxivinfo
             elif fldname == 'primaryclass':
                 pass # skip, we have all we need in arxivinfo
-            elif fldname == 'keywords':
+            elif fldname == 'keywords' or fldname == 'mendeley-tags':
                 xmlfields.setdefault('keywords', [])
-                xmlfields['keywords'] += [
-                    { 'keyword': kw }
-                    for kw in re.split(r'[.;]+', value)
-                    ]
-            #elif fldname == 'howpublished':
-            #elif fldname == 'institution':
-            #elif fldname == 'organization':
-            #elif fldname == 'school':
-            else:
+                for kw in re.split(r'[,;]+', fldvalue):
+                    kwval = delatex_for_xml(kw.strip())
+                    logger.longdebug("kw=%r, kwval=%r", kw, kwval)
+                    if kwval not in ( x['keyword'] for x in xmlfields['keywords'] ):
+                        xmlfields['keywords'].append({'keyword': kwval})
+            elif fldname == 'doi':
+                xmlfields['electronic-resource-num'] = value
+            elif fldname == 'issn' or fldname == 'isbn':
+                xmlfields['isbn'] = value
+            elif fldname == 'school':
+                if 'publisher' in entry.fields:
+                    xmlfields['titles']['secondary-title'] = value
+                else:
+                    xmlfields['publisher'] = value
+            elif (fldname == 'howpublished' or fldname == 'institution' or
+                  fldname == 'organization'):
                 xmlfields['notes'].append(value)
+            elif (fldname == 'pmid' or fldname == 'shorttitle'):
+                pass # don't really care
+            else:
+                logger.warning(u"%s: Ignoring unknown bibtex field %s=%r", entry.key, fldname, fldvalue)
 
 
         # set the arXiv preprint information
@@ -302,9 +335,10 @@ class Bib2EnXmlFilter(BibFilter):
             if archiveprefix == 'arxiv':
                 # it's on the arXiv
                 xmlfields['remote-database-name'] = "arXiv.org"
-                xmlfields['urls']['related-urls'].append( {
-                    'url': "http://arxiv.org/abs/" + str(arxivinfo['arxivid'])
-                    } )
+                if not self.no_arxiv_urls:
+                    xmlfields['urls']['related-urls'].append( {
+                        'url': "http://arxiv.org/abs/" + str(arxivinfo['arxivid'])
+                        } )
             else:
                 # it's another e-print, not too sure... the user must have provieded an
                 # URL or e-print which will be set in a URL or <notes>
@@ -355,7 +389,7 @@ class Bib2EnXmlFilter(BibFilter):
         arxivaccess = arxivutil.get_arxiv_cache_access(bibolamazifile)
 
         if (os.path.exists(self.xmlfile)):
-            raise BibFilterError("File %s exists, won't overwrite." %(self.xmlfile));
+            raise BibFilterError(self.name(), "File %s exists, won't overwrite." %(self.xmlfile));
 
         with open(bibolamazifile.resolveSourcePath(self.xmlfile), 'w') as fobj:
 
@@ -364,6 +398,7 @@ class Bib2EnXmlFilter(BibFilter):
 
             recnumber = 1;
             for key, entry in bibolamazifile.bibliographydata().entries.iteritems():
+                fobj.write("\n") #makes debugging easier, text editors hate very long lines...
                 # export & write this entry
                 self.export_entry_xml(fobj, recnumber, entry, arxivaccess)
                 recnumber += 1
