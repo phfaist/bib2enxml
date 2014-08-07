@@ -26,15 +26,20 @@ from filters.util import arxivutil
 
 
 def unicode_to_xml(u):
-    return re.sub(ur'[^-a-zA-Z0-9\s\+/\.,;:\!\@\#\$\%\^\*()_{}\[\]|?=]',
+    return re.sub(ur'[^-a-zA-Z0-9 \t\n\+/\.,;:\!\@\#\$\%\^\*()_{}\[\]|?=]',
                   lambda m: '&#x%x;'%(ord(m.group())),
                   unicode(u),
-                  flags=re.UNICODE).encode('ascii')
+                  flags=re.UNICODE).encode('latin1')
 
 def delatex_for_xml(s):
     #return latex2text.latex2text(unicode(s)).encode('utf-8');
-    text = latex2text.latex2text(unicode(s))
-    return unicode_to_xml(text)
+    s = unicode(s)
+    logger.longdebug('delatexing `%s\' [:100] ...', s[:100])
+    text = latex2text.latex2text(s, tolerant_parsing=True)
+    #logger.longdebug('  --> text is %r [:100]', text[:100])
+    xml = unicode_to_xml(text)
+    logger.longdebug('  --> xml is `%s\' [:100]', xml[:100])
+    return xml
 
 
 # --------------------------------------------------
@@ -45,6 +50,7 @@ ENT_CONFERENCE_PROCEEDINGS = 10
 ENT_GENERIC = 13
 ENT_JOURNAL_ARTICLE = 17
 ENT_ONLINE_DATABASE = 45
+ENT_REPORT = 10
 ENT_THESIS = 32
 ENT_UNPUBLISHED_WORK = 34
 
@@ -55,6 +61,7 @@ ENTYPES = {
     ENT_GENERIC : "Generic",
     ENT_JOURNAL_ARTICLE : "Journal Article",
     ENT_ONLINE_DATABASE : "Online Database",
+    ENT_REPORT : "Report",
     ENT_THESIS : "Thesis",
     ENT_UNPUBLISHED_WORK : "Unpublished Work",
     }
@@ -86,7 +93,7 @@ class Bib2EnXmlFilter(BibFilter):
 
 
     def __init__(self, xmlfile="publications_%Y-%m-%dT%H-%M-%S.xml", export_annote=True,
-                 no_arxiv_urls=False):
+                 no_arxiv_urls=False, fixes_for_ethz=False):
         """
         Bib2EnXmlFilter constructor.
 
@@ -105,6 +112,9 @@ class Bib2EnXmlFilter(BibFilter):
            added to the entry. Note that this is the only way to link to the online arXiv
            version, but you may disable this option if the URL is already present in the
            entry.
+
+         - fixes_for_ethz(bool): If set to `True`, includes some fixes & changes to prepare
+           for proper upload on ETHZ Silva's CMS publication database.
         """
 
         BibFilter.__init__(self);
@@ -112,6 +122,7 @@ class Bib2EnXmlFilter(BibFilter):
         self.xmlfile = datetime.now().strftime(xmlfile)
         self.export_annote = getbool(export_annote)
         self.no_arxiv_urls = getbool(no_arxiv_urls)
+        self.fixes_for_ethz = getbool(fixes_for_ethz)
 
         logger.debug('bib2enxml: xmlfile=%r', self.xmlfile)
 
@@ -147,6 +158,8 @@ class Bib2EnXmlFilter(BibFilter):
 
         arxivinfo = arxivaccess.getArXivInfo(entry.key)
         archiveprefix = ((arxivinfo['archiveprefix'] or "arxiv").lower() if arxivinfo else None)
+
+        logger.longdebug("Writing entry %s, arxivinfo=%r", entry.key, arxivinfo)
 
         # this will be where we collect the XML entries to set. Dictionary keys are XML
         # tags. Can be recursive. Lists are joined together into a string with newlines.
@@ -198,6 +211,8 @@ class Bib2EnXmlFilter(BibFilter):
             entype = ENT_GENERIC
         elif entry.type == 'unpublished':
             entype = ENT_UNPUBLISHED_WORK
+        elif entry.type == 'techreport':
+            entype = ENT_REPORT
         else:
             logger.warning("Unknown entry type: %s, setting `Generic'", entry.type)
             entype = ENT_GENERIC
@@ -265,14 +280,19 @@ class Bib2EnXmlFilter(BibFilter):
                     xmlfields['notes'].append(value)
                 # otherwise, we'll set up the arXiv information correctly anyway.
             elif fldname == 'journal':
-                xmlfields['titles']['secondary-title'] = value
+                if self.fixes_for_ethz and arxivinfo and not arxivinfo['published'] and 'arxiv' in fldvalue.lower():
+                    # unpublished, will be treated anyway automatically
+                    pass
+                else:
+                    xmlfields['titles']['secondary-title'] = value
             elif fldname == 'key':
                 logger.debug("Ignoring `key={%s}' field in %s for XML export", value, entry.key)
             elif fldname == 'language':
                 xmlfields['language'] = value
             elif fldname == 'month':
-                xmlfields['dates']['pub-dates'].setdefault('date','')
-                xmlfields['dates']['pub-dates']['date'] += value
+                if not self.fixes_for_ethz:
+                    xmlfields['dates']['pub-dates'].setdefault('date','')
+                    xmlfields['dates']['pub-dates']['date'] += value
             elif fldname == 'note':
                 xmlfields['notes'].append(value)
             elif fldname == 'number':
@@ -289,7 +309,8 @@ class Bib2EnXmlFilter(BibFilter):
                 xmlfields['work-type'] = value
             elif fldname == 'url':
                 for url in value.split():
-                    xmlfields['urls']['related-urls'].append(url)
+                    logger.longdebug("Adding URL %s", url)
+                    xmlfields['urls']['related-urls'].append({'url': url})
             elif fldname == 'volume':
                 xmlfields['volume'] = value
             elif fldname == 'year':
@@ -304,16 +325,21 @@ class Bib2EnXmlFilter(BibFilter):
             elif fldname == 'primaryclass':
                 pass # skip, we have all we need in arxivinfo
             elif fldname == 'keywords' or fldname == 'mendeley-tags':
-                xmlfields.setdefault('keywords', [])
-                for kw in re.split(r'[,;]+', fldvalue):
-                    kwval = delatex_for_xml(kw.strip())
-                    logger.longdebug("kw=%r, kwval=%r", kw, kwval)
-                    if kwval not in ( x['keyword'] for x in xmlfields['keywords'] ):
-                        xmlfields['keywords'].append({'keyword': kwval})
+                if self.fixes_for_ethz:
+                    pass
+                else:
+                    xmlfields.setdefault('keywords', [])
+                    for kw in re.split(r'[,;]+', fldvalue):
+                        kwval = delatex_for_xml(kw.strip())
+                        logger.longdebug("kw=%r, kwval=%r", kw, kwval)
+                        if kwval not in ( x['keyword'] for x in xmlfields['keywords'] ):
+                            xmlfields['keywords'].append({'keyword': kwval})
             elif fldname == 'doi':
-                xmlfields['electronic-resource-num'] = value
+                if not self.fixes_for_ethz:
+                    xmlfields['electronic-resource-num'] = value
             elif fldname == 'issn' or fldname == 'isbn':
-                xmlfields['isbn'] = value
+                if not self.fixes_for_ethz:
+                    xmlfields['isbn'] = value
             elif fldname == 'school':
                 if 'publisher' in entry.fields:
                     xmlfields['titles']['secondary-title'] = value
@@ -334,7 +360,10 @@ class Bib2EnXmlFilter(BibFilter):
         if arxivinfo is not None:
             if archiveprefix == 'arxiv':
                 # it's on the arXiv
-                xmlfields['remote-database-name'] = "arXiv.org"
+                if self.fixes_for_ethz and arxivinfo['published']:
+                    pass
+                else:
+                    xmlfields['remote-database-name'] = "arXiv.org"
                 if not self.no_arxiv_urls:
                     xmlfields['urls']['related-urls'].append( {
                         'url': "http://arxiv.org/abs/" + str(arxivinfo['arxivid'])
