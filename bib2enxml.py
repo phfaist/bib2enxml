@@ -191,7 +191,8 @@ class Bib2EnXmlFilter(BibFilter):
         # ------------------------
         
         entype = None
-        if arxivinfo is not None and not arxivinfo['published']:
+        if (arxivinfo is not None and not arxivinfo['published']
+            and entry.type in (u'article', u'unpublished', u'misc',)):
             entype = ENT_ONLINE_DATABASE
         elif (entry.type == 'article'):
             entype = ENT_JOURNAL_ARTICLE
