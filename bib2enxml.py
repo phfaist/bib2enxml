@@ -281,7 +281,8 @@ class Bib2EnXmlFilter(BibFilter):
                     xmlfields['notes'].append(value)
                 # otherwise, we'll set up the arXiv information correctly anyway.
             elif fldname == 'journal':
-                if self.fixes_for_ethz and arxivinfo and not arxivinfo['published'] and 'arxiv' in fldvalue.lower():
+                if (self.fixes_for_ethz and arxivinfo and not arxivinfo['published']
+                    and 'arxiv' in fldvalue.lower()):
                     # unpublished, will be treated anyway automatically
                     pass
                 else:
@@ -361,7 +362,8 @@ class Bib2EnXmlFilter(BibFilter):
         if arxivinfo is not None:
             if archiveprefix == 'arxiv':
                 # it's on the arXiv
-                if self.fixes_for_ethz and arxivinfo['published']:
+                if self.fixes_for_ethz and (arxivinfo['published'] or
+                                            entry.type in (u'phdthesis', u'mastersthesis',)):
                     pass
                 else:
                     xmlfields['remote-database-name'] = "arXiv.org"
