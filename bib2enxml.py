@@ -93,7 +93,7 @@ class Bib2EnXmlFilter(BibFilter):
 
 
     def __init__(self, xmlfile="publications_%Y-%m-%dT%H-%M-%S.xml", export_annote=True,
-                 no_arxiv_urls=False, fixes_for_ethz=False):
+                 no_arxiv_urls=False, fixes_for_ethz=False, print_diff_to_last=False):
         """
         Bib2EnXmlFilter constructor.
 
@@ -115,20 +115,22 @@ class Bib2EnXmlFilter(BibFilter):
 
          - fixes_for_ethz(bool): If set to `True`, includes some fixes & changes to prepare
            for proper upload on ETHZ Silva's CMS publication database.
+
+         - print_diff_to_last(bool): If `True`, then print out the difference between the
+           new outputted XML file and the latest file generated with the same pattern.
         """
 
         BibFilter.__init__(self);
 
+        self.xmlfilepattern = xmlfile
         self.xmlfile = datetime.now().strftime(xmlfile)
         self.export_annote = getbool(export_annote)
         self.no_arxiv_urls = getbool(no_arxiv_urls)
         self.fixes_for_ethz = getbool(fixes_for_ethz)
+        self.print_diff_to_last = getbool(print_diff_to_last)
 
         logger.debug('bib2enxml: xmlfile=%r', self.xmlfile)
 
-
-    def name(self):
-        return "bib2enxml"
 
     def getRunningMessage(self):
         return u"Saving a copy of the database to `%s' in old EndNote XML format" %(self.xmlfile)
@@ -137,6 +139,12 @@ class Bib2EnXmlFilter(BibFilter):
     def action(self):
         return BibFilter.BIB_FILTER_BIBOLAMAZIFILE;
 
+
+    def requested_cache_accessors(self):
+        return [
+            arxivutil.ArxivInfoCacheAccessor,
+            arxivutil.ArxivFetchedAPIInfoCacheAccessor
+            ]
 
     def export_entry_xml(self, fobj, recnumber, entry, arxivaccess):
         """
@@ -153,7 +161,7 @@ class Bib2EnXmlFilter(BibFilter):
           - `entry` is a pybtex.database.Entry object.
 
           - `arxivaccess`: an access to the arXiv information cache. This should be
-            obtained with `arxivutil.get_arxiv_cache_access()`.
+            obtained with `arxivutil.setup_and_get_arxiv_accessor()`.
         """
 
         arxivinfo = arxivaccess.getArXivInfo(entry.key)
@@ -416,26 +424,70 @@ class Bib2EnXmlFilter(BibFilter):
         # bibdata is a pybtex.database.BibliographyData object
         #
 
-        bibdata = bibolamazifile.bibliographydata();
+        bibdata = bibolamazifile.bibliographyData();
 
-        arxivaccess = arxivutil.get_arxiv_cache_access(bibolamazifile)
+        arxivaccess = arxivutil.setup_and_get_arxiv_accessor(bibolamazifile)
 
         if (os.path.exists(self.xmlfile)):
             raise BibFilterError(self.name(), "File %s exists, won't overwrite." %(self.xmlfile));
 
-        with open(bibolamazifile.resolveSourcePath(self.xmlfile), 'w') as fobj:
+        xmlfilepath = bibolamazifile.resolveSourcePath(self.xmlfile)
+
+        with open(xmlfilepath, 'w') as fobj:
 
             fobj.write("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>"
                        "<xml><records>")
 
             recnumber = 1;
-            for key, entry in bibolamazifile.bibliographydata().entries.iteritems():
+            for key, entry in bibolamazifile.bibliographyData().entries.iteritems():
                 fobj.write("\n") #makes debugging easier, text editors hate very long lines...
                 # export & write this entry
                 self.export_entry_xml(fobj, recnumber, entry, arxivaccess)
                 recnumber += 1
 
             fobj.write("</records></xml>");
+
+        if self.print_diff_to_last:
+            # first, find the latest file which has our given pattern. Use strptime to
+            # parse the date/time
+            (dn,bn) = os.path.split(os.path.abspath(bibolamazifile.resolveSourcePath(self.xmlfilepattern)))
+            def strptimeornone(fn):
+                try:
+                    return datetime.strptime(fn, bn)
+                except ValueError:
+                    return None
+
+            files_with_dt = [
+                pair for pair in (
+                    (fn, strptimeornone(fn)) for fn in os.listdir(dn)
+                    )
+                if pair[1] is not None and pair[0] != os.path.basename(self.xmlfile)
+                ]
+
+            logger.longdebug("bib2enxml: preparing diff: got file list %r", files_with_dt)
+
+            if not files_with_dt:
+                # no file to display diff with
+                logger.info("bib2enxml: No other file with same pattern to display diff with.")
+            else:
+
+                fn = (max(files_with_dt, key=lambda pair: pair[1]))[0]
+
+                import diffendnoteex2xml
+
+                # now display diff
+                width = 100
+                difftext = diffendnoteex2xml.getFormattedDiffContents(
+                    os.path.join(dn,fn),
+                    xmlfilepath,
+                    txtwid=width,
+                    addindent=2,
+                    )
+                logger.info("#"*width + "\n" +
+                            "DIFFERENCES:  %s  vs  %s\n"%(fn, self.xmlfile) +
+                            "#"*width + "\n" +
+                            (difftext if difftext else "(no differences)") + "#"*width)
+
 
         return
 
