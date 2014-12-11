@@ -486,7 +486,7 @@ class Bib2EnXmlFilter(BibFilter):
                 logger.info("#"*width + "\n" +
                             "DIFFERENCES:  %s  vs  %s\n"%(fn, self.xmlfile) +
                             "#"*width + "\n" +
-                            (difftext if difftext else "(no differences)") + "#"*width)
+                            (difftext if difftext else "(no differences)\n") + "#"*width)
 
 
         return
