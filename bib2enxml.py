@@ -9,18 +9,26 @@ import unicodedata
 import string
 import textwrap
 from datetime import datetime
-
+import logging
 
 from pybtex.database import BibliographyData, Entry
 
-from core.bibfilter import BibFilter, BibFilterError
-from core.blogger import logger
-from core.pylatexenc import latex2text
-from core.butils import getbool
+try:
+    # bibolamazi v3
+    from bibolamazi.core.bibfilter import BibFilter, BibFilterError
+    from bibolamazi.core.butils import getbool
+    from bibolamazi.filters.util import arxivutil
+    from pylatexenc import latex2text
+    logger = logging.getLogger(__name__)
+except ImportError:
+    # bibolamazi v2
+    from core.bibfilter import BibFilter, BibFilterError
+    from core.butils import getbool
+    from core.blogger import logger
+    from core.pylatexenc import latex2text
+    from filters.util import arxivutil
 
-from filters.util import arxivutil
-
-
+    
 
 # --------------------------------------------------
 
