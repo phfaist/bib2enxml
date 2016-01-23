@@ -40,10 +40,9 @@ def unicode_to_xml(u):
                   flags=re.UNICODE).encode('latin1')
 
 def delatex_for_xml(s):
-    #return latex2text.latex2text(unicode(s)).encode('utf-8');
     s = unicode(s)
     logger.longdebug('delatexing `%s\' [:100] ...', s[:100])
-    text = latex2text.latex2text(s, tolerant_parsing=True)
+    text = latex2text.latex2text(s, tolerant_parsing=True, keep_comments=True)
     #logger.longdebug('  --> text is %r [:100]', text[:100])
     xml = unicode_to_xml(text)
     logger.longdebug('  --> xml is `%s\' [:100]', xml[:100])
