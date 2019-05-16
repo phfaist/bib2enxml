@@ -1,11 +1,23 @@
 
 # Filter to remove all entries from the database.
 
-from pybtex.database import BibliographyData, Entry;
+from __future__ import unicode_literals, print_function
 
-from core.bibfilter import BibFilter, BibFilterError;
-from core.blogger import logger;
-from core.pylatexenc import latex2text
+from pybtex.database import BibliographyData, Entry
+
+import logging
+
+
+try:
+    # bibolamazi v3
+    from bibolamazi.core.bibfilter import BibFilter, BibFilterError
+    from pylatexenc import latex2text
+    logger = logging.getLogger(__name__)
+except ImportError:
+    # bibolamazi v2
+    from core.bibfilter import BibFilter, BibFilterError
+    from core.blogger import logger
+    from core.pylatexenc import latex2text
 
 
 

@@ -1,6 +1,8 @@
 
 # Filter to save an old EndNote XML copy of the bibtex database.
 
+from __future__ import unicode_literals, print_function
+
 import os
 import os.path
 import re
@@ -272,7 +274,7 @@ class Bib2EnXmlFilter(BibFilter):
         # and now, prepare the rest of the XML fields.
         # --------------------------------------------
 
-        for fldname, fldvalue in entry.fields.iteritems():
+        for fldname, fldvalue in entry.fields.items():
             
             fldname = fldname.lower()
             value = delatex_for_xml(fldvalue)
@@ -397,7 +399,7 @@ class Bib2EnXmlFilter(BibFilter):
         def write_xmlfields(val):
 
             if isinstance(val, dict):
-                for k,v in val.iteritems():
+                for k,v in val.items():
                     if not v:
                         fobj.write("<"+k+"/>")
                     else:
@@ -446,7 +448,7 @@ class Bib2EnXmlFilter(BibFilter):
                        "<xml><records>")
 
             recnumber = 1;
-            for key, entry in bibolamazifile.bibliographyData().entries.iteritems():
+            for key, entry in bibolamazifile.bibliographyData().entries.items():
                 fobj.write("\n") #makes debugging easier, text editors hate very long lines...
                 # export & write this entry
                 self.export_entry_xml(fobj, recnumber, entry, arxivaccess)
