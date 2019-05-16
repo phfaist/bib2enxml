@@ -36,7 +36,7 @@ except ImportError:
 
 
 def unicode_to_xml(u):
-    return re.sub(ur'[^-a-zA-Z0-9 \t\n\+/\.,;:\!\@\#\$\%\^\*()_{}\[\]|?=]',
+    return re.sub(r'[^-a-zA-Z0-9 \t\n\+/\.,;:\!\@\#\$\%\^\*()_{}\[\]|?=]',
                   lambda m: '&#x%x;'%(ord(m.group())),
                   unicode(u),
                   flags=re.UNICODE).encode('latin1')
